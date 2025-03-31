@@ -1,4 +1,5 @@
 # Vonage SDK
+-keep class org.vonage.**  { *; }
 -keep class com.vonage.** { *; }
 -keep class org.webrtc.** { *; }
--keep class com.google.protobuf.** { *; } 
+-keep class com.google.protobuf.** { *; }
