@@ -120,3 +120,9 @@ When you're sending a pull request:
 - Review the documentation to make sure it looks good.
 - Follow the pull request template when opening a pull request.
 - For pull requests that change the API or implementation, discuss with maintainers first by opening an issue.
+
+
+## Android module
+
+- Code Formatting: Uses ktfmt with KotlinLang style.
+- Dependency Injection: Powered by Koin for cleaner and more modular code.

@@ -1,23 +1,22 @@
 package com.vonagevoice.controller.call
 
+// import com.vonage.android_core.voice.VGVoiceClientDelegate
+// import com.vonagevoice.utils.VGLogger
 import android.annotation.SuppressLint
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
-import android.telecom.TelecomManager
 import com.vonage.android_core.VGClientConfig
 import com.vonage.android_core.VGClientInitConfig
 import com.vonage.clientcore.core.api.ClientConfigRegion
 import com.vonage.clientcore.core.api.LoggingLevel
 import com.vonage.voice.api.VGVoiceCallbackAPI
 import com.vonage.voice.api.VoiceClient
-// import com.vonage.android_core.voice.VGVoiceClientDelegate
 import com.vonagevoice.model.Call
 import com.vonagevoice.model.CallStatus
 import com.vonagevoice.telecom.TelecomHelper
-// import com.vonagevoice.utils.VGLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -26,26 +25,17 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class CallControllerImpl private constructor(
-    private val context: Context,
+class CallControllerImpl
+private constructor(
+    private val context: Context
     // private val logger: VGLogger? = null
 ) : CallController, VGVoiceCallbackAPI {
 
-    companion object {
-        @SuppressLint("StaticFieldLeak")
-        @Volatile
-        private var instance: CallControllerImpl? = null
-
-        fun getInstance(context: Context): CallControllerImpl {
-            return instance ?: synchronized(this) {
-                instance ?: CallControllerImpl(context.applicationContext).also { instance = it }
-            }
-        }
-    }
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val client = VoiceClient(this.context, VGClientInitConfig(loggingLevel = LoggingLevel.Error))
-    private val telecomHelper: TelecomHelper
+    private val client =
+        VoiceClient(this.context, VGClientInitConfig(loggingLevel = LoggingLevel.Error))
+
+    private val telecomHelper: TelecomHelper by inject()
 
     // Flow controllers
     private val _calls = MutableSharedFlow<Call>()
@@ -60,49 +50,52 @@ class CallControllerImpl private constructor(
     init {
         // Initialize Vonage client
         // client = if (logger != null) {
-        //     VoiceClient(VGClientInitConfig(logLevel = VGLogLevel.ERROR, customLoggers = listOf(logger)))
+        //     VoiceClient(VGClientInitConfig(logLevel = VGLogLevel.ERROR, customLoggers =
+        // listOf(logger)))
         // } else {
-//            VoiceClient(VGClientInitConfig(loggingLevel = VGLogLevel.ERROR))
+        //            VoiceClient(VGClientInitConfig(loggingLevel = VGLogLevel.ERROR))
         // }
 
-        telecomHelper = TelecomHelper(context, this)
-
         // Load saved region
-        context.getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE).getString("vonage.region", null)?.let { region ->
-            when (region) {
-                "EU" -> client.setConfig(VGClientConfig(region = ClientConfigRegion.EU))
-                "AP" -> client.setConfig(VGClientConfig(region = ClientConfigRegion.AP))
-                else -> client.setConfig(VGClientConfig(region = ClientConfigRegion.US))
+        context
+            .getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE)
+            .getString("vonage.region", null)
+            ?.let { region ->
+                when (region) {
+                    "EU" -> client.setConfig(VGClientConfig(region = ClientConfigRegion.EU))
+                    "AP" -> client.setConfig(VGClientConfig(region = ClientConfigRegion.AP))
+                    else -> client.setConfig(VGClientConfig(region = ClientConfigRegion.US))
+                }
             }
-        }
 
         // Setup call monitoring
         scope.launch {
-            calls.flatMapLatest { call ->
-                _callUpdates
-                    .filter { it.first == call.callId }
-                    .map { Call.fromCallUpdate(call, it.second) }
-                    .onStart { emit(call) }
-                    .distinctUntilChanged { old, new -> old.status == new.status }
-            }
-            .collect { call ->
-                when (call.status) {
-                    CallStatus.COMPLETED -> _activeCalls.update { calls ->
-                        calls.toMutableMap().apply { remove(call.callId) }
-                    }
-                    else -> _activeCalls.update { calls ->
-                        calls.toMutableMap().apply { put(call.callId, call) }
+            calls
+                .flatMapLatest { call ->
+                    _callUpdates
+                        .filter { it.first == call.callId }
+                        .map { Call.fromCallUpdate(call, it.second) }
+                        .onStart { emit(call) }
+                        .distinctUntilChanged { old, new -> old.status == new.status }
+                }
+                .collect { call ->
+                    when (call.status) {
+                        CallStatus.COMPLETED ->
+                            _activeCalls.update { calls ->
+                                calls.toMutableMap().apply { remove(call.callId) }
+                            }
+                        else ->
+                            _activeCalls.update { calls ->
+                                calls.toMutableMap().apply { put(call.callId, call) }
+                            }
                     }
                 }
-            }
         }
     }
 
     override fun updateSessionToken(token: String?, completion: ((Exception?) -> Unit)?) {
         if (token == null || token.isEmpty()) {
-            client.deleteSession { error ->
-                completion?.invoke(error)
-            }
+            client.deleteSession { error -> completion?.invoke(error) }
             return
         }
 
@@ -116,33 +109,34 @@ class CallControllerImpl private constructor(
         }
     }
 
-    override fun startOutboundCall(context: Map<String, String>, completion: (Exception?, String?) -> Unit) {
+    override fun startOutboundCall(
+        context: Map<String, String>,
+        completion: (Exception?, String?) -> Unit,
+    ) {
         client.serverCall(context) { error, callId ->
             if (error != null) {
                 completion(error, null)
                 return@serverCall
             }
 
-            _calls.tryEmit(Call.Outbound(
-                id = callId!!,
-                to = context["to"] ?: "unknown",
-                status = CallStatus.RINGING
-            ))
+            _calls.tryEmit(
+                Call.Outbound(
+                    id = callId!!,
+                    to = context["to"] ?: "unknown",
+                    status = CallStatus.RINGING,
+                )
+            )
 
             completion(null, callId)
         }
     }
 
     override fun registerPushToken(token: String, callback: (Exception?, String?) -> Unit) {
-        client.registerDevicePushToken(token) { error, deviceId ->
-            callback(error, deviceId)
-        }
+        client.registerDevicePushToken(token) { error, deviceId -> callback(error, deviceId) }
     }
 
     override fun unregisterPushToken(deviceId: String, callback: (Exception?) -> Unit) {
-        client.unregisterDevicePushToken(deviceId) { error ->
-            callback(error)
-        }
+        client.unregisterDevicePushToken(deviceId) { error -> callback(error) }
     }
 
     override fun toggleNoiseSuppression(call: Call, isOn: Boolean) {
@@ -155,7 +149,7 @@ class CallControllerImpl private constructor(
 
     override fun setAudioDevice(deviceId: String, completion: (Exception?) -> Unit) {
         try {
-//            AudioManager.
+            //            AudioManager.
             completion(null)
         } catch (e: Exception) {
             completion(e)
@@ -163,13 +157,15 @@ class CallControllerImpl private constructor(
     }
 
     override fun setRegion(region: String?) {
-        val config = when (region) {
-            "EU" -> VGClientConfig(region = ClientConfigRegion.EU)
-            "AP" -> VGClientConfig(region = ClientConfigRegion.AP)
-            else -> VGClientConfig(region = ClientConfigRegion.US)
-        }
+        val config =
+            when (region) {
+                "EU" -> VGClientConfig(region = ClientConfigRegion.EU)
+                "AP" -> VGClientConfig(region = ClientConfigRegion.AP)
+                else -> VGClientConfig(region = ClientConfigRegion.US)
+            }
 
-        context.getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE)
+        context
+            .getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE)
             .edit()
             .putString("vonage.region", region ?: "US")
             .apply()
@@ -179,25 +175,19 @@ class CallControllerImpl private constructor(
 
     override fun mute(callId: String, completion: (Exception?) -> Unit) {
         activeCalls.value[callId]?.let { call ->
-            client.mute(call.callId) { error ->
-                completion(error)
-            }
+            client.mute(call.callId) { error -> completion(error) }
         } ?: completion(IllegalStateException("No active call found"))
     }
 
     override fun unmute(callId: String, completion: (Exception?) -> Unit) {
         activeCalls.value[callId]?.let { call ->
-            client.unmute(call.callId) { error ->
-                completion(error)
-            }
+            client.unmute(call.callId) { error -> completion(error) }
         } ?: completion(IllegalStateException("No active call found"))
     }
 
     override fun sendDTMF(dtmf: String, completion: (Exception?) -> Unit) {
         activeCalls.value.values.firstOrNull()?.let { call ->
-            client.sendDTMF(call.callId, dtmf) { error ->
-                completion(error)
-            }
+            client.sendDTMF(call.callId, dtmf) { error -> completion(error) }
         } ?: completion(IllegalStateException("No active call found"))
     }
 
@@ -211,7 +201,8 @@ class CallControllerImpl private constructor(
     }
 
     override fun saveDebugInfo(info: String) {
-        context.getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE)
+        context
+            .getSharedPreferences("vonage_prefs", Context.MODE_PRIVATE)
             .edit()
             .putString("vonage.debug.info", info)
             .apply()
@@ -231,11 +222,7 @@ class CallControllerImpl private constructor(
     // }
 
     override fun onCallInvite(callId: String, from: String) {
-        _calls.tryEmit(Call.Inbound(
-            id = callId,
-            from = from,
-            status = CallStatus.RINGING
-        ))
+        _calls.tryEmit(Call.Inbound(id = callId, from = from, status = CallStatus.RINGING))
 
         telecomHelper.showIncomingCall(callId, from)
     }
@@ -266,22 +253,27 @@ class CallControllerImpl private constructor(
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val focusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-                .setAudioAttributes(AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .build())
-                .setAcceptsDelayedFocusGain(true)
-                .setOnAudioFocusChangeListener { }
-                .build()
+            val focusRequest =
+                AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAcceptsDelayedFocusGain(true)
+                    .setOnAudioFocusChangeListener {}
+                    .build()
 
             audioFocusRequest = focusRequest
             audioManager.requestAudioFocus(focusRequest)
         } else {
             @Suppress("DEPRECATION")
-            audioManager.requestAudioFocus(null,
+            audioManager.requestAudioFocus(
+                null,
                 AudioManager.STREAM_VOICE_CALL,
-                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT,
+            )
         }
     }
 
@@ -292,8 +284,7 @@ class CallControllerImpl private constructor(
             audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
             audioFocusRequest = null
         } else {
-            @Suppress("DEPRECATION")
-            audioManager.abandonAudioFocus(null)
+            @Suppress("DEPRECATION") audioManager.abandonAudioFocus(null)
         }
     }
 }

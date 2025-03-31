@@ -4,20 +4,20 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 
 class VonagePushMessageService : FirebaseMessagingService() {
+
+    private val callController: CallController by inject()
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         // Register new token with Vonage
-        CallControllerImpl.getInstance(applicationContext)
-            .registerPushToken(token) { _, _ -> }
+        callController.registerPushToken(token) { _, _ -> }
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
         if (message.data.containsKey("vonage_call")) {
             // Handle incoming call push notification
-            CallControllerImpl.getInstance(applicationContext)
-                .client
-                .processCallInvitePushData(message.data)
+            callController.client.processCallInvitePushData(message.data)
         }
     }
 }
